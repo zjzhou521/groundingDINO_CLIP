@@ -1,7 +1,10 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from scalar_fastapi import AgentScalarConfig, get_scalar_api_reference
 
 logging.basicConfig(
@@ -33,6 +36,19 @@ app = FastAPI(
     redoc_url=None,
 )
 app.include_router(router, prefix=settings.API_V1_PREFIX)
+
+# Serve static files for web UI
+web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
+if os.path.exists(web_dir):
+    app.mount("/static", StaticFiles(directory=web_dir), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    """Serve the web UI."""
+    if os.path.exists(web_dir):
+        return FileResponse(os.path.join(web_dir, "index.html"))
+    return {"message": "Logo Detection API - Visit /docs for API documentation"}
 
 
 @app.get("/docs", include_in_schema=False)

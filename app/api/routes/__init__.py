@@ -3,7 +3,7 @@ import time
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 logger = logging.getLogger(__name__)
 from sqlalchemy import select
@@ -274,6 +274,76 @@ def detect_logo(
     except Exception as exc:
         mark_job_failed(db, job, str(exc))
         raise
+
+
+@router.post("/products/detect-logo-file", response_model=DetectLogoResponse)
+def detect_logo_file(
+    user_id: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> DetectLogoResponse:
+    """Detect logo by uploading a file directly."""
+    pipeline = get_logo_pipeline_service()
+    storage = get_object_storage_service()
+
+    job = create_job(
+        db,
+        user_id=user_id,
+        job_type="detect_logo_file",
+        params={"filename": file.filename},
+    )
+
+    try:
+        mark_job_running(db, job)
+
+        # Read uploaded file
+        content = file.file.read()
+        image = load_image_from_bytes(content)
+        normalized_bytes, content_type = image_to_png_bytes(image)
+
+        product_id = uuid.uuid4()
+        storage_key = f"products/{user_id}/{product_id}/{uuid.uuid4()}.png"
+        storage.upload_bytes(storage_key, normalized_bytes, content_type)
+        storage_url = storage.build_object_url(storage_key)
+
+        product = Product(
+            id=product_id,
+            user_id=user_id,
+            source_url=f"upload://{file.filename}",
+            storage_key=storage_key,
+            storage_url=storage_url,
+            original_filename=file.filename or "uploaded-image",
+            content_type=content_type,
+            width=image.width,
+            height=image.height,
+        )
+        db.add(product)
+        db.commit()
+        db.refresh(product)
+
+        job.product_id = product.id
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+
+        detection = pipeline.detect(image)
+        result = {
+            "product_id": str(product.id),
+            "detection": detection.as_dict() if detection else None,
+            "found": detection is not None,
+        }
+        mark_job_succeeded(db, job, result)
+
+        return DetectLogoResponse(
+            job_id=str(job.id),
+            product_id=str(product.id),
+            detection=BoundingBox(**detection.as_dict()) if detection else None,
+            found=detection is not None,
+        )
+    except Exception as exc:
+        logger.exception("File upload detection failed: %s", exc)
+        mark_job_failed(db, job, str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/products/classify-logo", response_model=ClassifyLogoResponse)
