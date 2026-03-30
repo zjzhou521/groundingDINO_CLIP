@@ -43,7 +43,7 @@ class ReferenceUploadResponse(BaseModel):
 class DetectLogoResponse(BaseModel):
     job_id: str
     product_id: str
-    detection: BoundingBox | None
+    detections: list[BoundingBox]
     found: bool
 
 

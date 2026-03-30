@@ -253,19 +253,19 @@ def detect_logo(
         db.commit()
         db.refresh(job)
 
-        detection = pipeline.detect(image)
+        detections = pipeline.detect(image, top_k=5)
         result = {
             "product_id": str(product.id),
-            "detection": detection.as_dict() if detection else None,
-            "found": detection is not None,
+            "detections": [d.as_dict() for d in detections],
+            "found": len(detections) > 0,
         }
         mark_job_succeeded(db, job, result)
 
         return DetectLogoResponse(
             job_id=str(job.id),
             product_id=str(product.id),
-            detection=BoundingBox(**detection.as_dict()) if detection else None,
-            found=detection is not None,
+            detections=[BoundingBox(**d.as_dict()) for d in detections],
+            found=len(detections) > 0,
         )
     except RemoteImageDownloadError as exc:
         logger.error("RemoteImageDownloadError: %s", exc)
@@ -326,19 +326,19 @@ def detect_logo_file(
         db.commit()
         db.refresh(job)
 
-        detection = pipeline.detect(image)
+        detections = pipeline.detect(image, top_k=5)
         result = {
             "product_id": str(product.id),
-            "detection": detection.as_dict() if detection else None,
-            "found": detection is not None,
+            "detections": [d.as_dict() for d in detections],
+            "found": len(detections) > 0,
         }
         mark_job_succeeded(db, job, result)
 
         return DetectLogoResponse(
             job_id=str(job.id),
             product_id=str(product.id),
-            detection=BoundingBox(**detection.as_dict()) if detection else None,
-            found=detection is not None,
+            detections=[BoundingBox(**d.as_dict()) for d in detections],
+            found=len(detections) > 0,
         )
     except Exception as exc:
         logger.exception("File upload detection failed: %s", exc)

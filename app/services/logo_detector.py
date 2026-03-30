@@ -55,7 +55,8 @@ class GroundingDINOService:
         ).to(self.device)
         self._model.eval()
 
-    def detect_primary_logo(self, image: Image.Image) -> DetectedLogoBox | None:
+    def detect(self, image: Image.Image, top_k: int = 5) -> list[DetectedLogoBox]:
+        """Detect top K logos in the image."""
         self._load()
 
         # Build the text prompt for grounding (single string with labels)
@@ -79,20 +80,33 @@ class GroundingDINOService:
         )
 
         result = results[0]
-        if len(result["boxes"]) == 0:
-            return None
+        num_boxes = len(result["boxes"])
+        if num_boxes == 0:
+            return []
 
         scores = result["scores"]
-        best_index = max(range(len(scores)), key=lambda index: float(scores[index]))
-        box = result["boxes"][best_index].tolist()
         labels = result.get("labels") or []
-        label = labels[best_index] if best_index < len(labels) else None
 
-        return DetectedLogoBox(
-            x_min=float(box[0]),
-            y_min=float(box[1]),
-            x_max=float(box[2]),
-            y_max=float(box[3]),
-            score=float(scores[best_index]),
-            label=label,
-        )
+        # Get indices sorted by score (descending)
+        sorted_indices = sorted(
+            range(num_boxes),
+            key=lambda index: float(scores[index]),
+            reverse=True
+        )[:top_k]
+
+        detections: list[DetectedLogoBox] = []
+        for index in sorted_indices:
+            box = result["boxes"][index].tolist()
+            label = labels[index] if index < len(labels) else None
+            detections.append(
+                DetectedLogoBox(
+                    x_min=float(box[0]),
+                    y_min=float(box[1]),
+                    x_max=float(box[2]),
+                    y_max=float(box[3]),
+                    score=float(scores[index]),
+                    label=label,
+                )
+            )
+
+        return detections

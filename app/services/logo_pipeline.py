@@ -62,16 +62,18 @@ class LogoPipelineService:
         self.embeddings = embeddings
         self.vector_store = vector_store
 
-    def detect(self, image: Image.Image) -> DetectedLogoBox | None:
-        return self.detector.detect_primary_logo(image)
+    def detect(self, image: Image.Image, top_k: int = 5) -> list[DetectedLogoBox]:
+        """Detect top K logos in the image."""
+        return self.detector.detect(image, top_k=top_k)
 
     def classify(self, user_id: str, image: Image.Image) -> ClassificationOutcome:
-        detection = self.detect(image)
+        detections = self.detect(image, top_k=5)
+        best_detection = detections[0] if detections else None
         used_full_image_fallback = False
 
-        if detection is not None:
+        if best_detection is not None:
             crop_box = clamp_box(
-                (detection.x_min, detection.y_min, detection.x_max, detection.y_max),
+                (best_detection.x_min, best_detection.y_min, best_detection.x_max, best_detection.y_max),
                 image.width,
                 image.height,
             )
@@ -103,7 +105,7 @@ class LogoPipelineService:
         candidates = self._aggregate_candidates(neighbors)
         if not candidates:
             return ClassificationOutcome(
-                detection=detection,
+                detection=best_detection,
                 predicted_logo_id=None,
                 predicted_logo_name=None,
                 score=None,
@@ -122,7 +124,7 @@ class LogoPipelineService:
         )
 
         return ClassificationOutcome(
-            detection=detection,
+            detection=best_detection,
             predicted_logo_id=top_one.logo_id if matched else None,
             predicted_logo_name=top_one.logo_name if matched else None,
             score=top_one.score,
