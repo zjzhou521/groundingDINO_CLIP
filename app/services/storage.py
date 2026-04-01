@@ -1,5 +1,6 @@
 import os
 from contextlib import contextmanager
+from datetime import timedelta
 
 import boto3
 from botocore.config import Config
@@ -67,3 +68,18 @@ class ObjectStorageService:
     def build_object_url(self, key: str) -> str:
         base_url = settings.S3_ENDPOINT_URL.rstrip("/")
         return f"{base_url}/{self.bucket_name}/{key.lstrip('/')}"
+
+    def generate_presigned_get_url(
+        self,
+        key: str,
+        *,
+        expires_in: int = int(timedelta(days=7).total_seconds()),
+    ) -> str:
+        return self.client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": self.bucket_name,
+                "Key": key,
+            },
+            ExpiresIn=expires_in,
+        )

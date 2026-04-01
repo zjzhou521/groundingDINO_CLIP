@@ -55,6 +55,9 @@ class ClassifyLogoResponse(BaseModel):
     predicted_logo_name: str | None
     score: float | None
     margin: float | None
+    winning_reference_image_id: str | None
+    winning_reference_storage_key: str | None
+    winning_reference_signed_url: str | None
     matched: bool
     used_full_image_fallback: bool
     candidates: list[MatchCandidate]

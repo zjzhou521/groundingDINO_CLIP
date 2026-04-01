@@ -415,6 +415,39 @@
         .reference-loading {
             padding: 1rem 0;
         }
+
+        .winning-reference {
+            margin-top: 1rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .winning-reference img {
+            width: 100%;
+            max-height: 240px;
+            object-fit: contain;
+            background: rgba(255, 255, 255, 0.02);
+            display: block;
+        }
+
+        .winning-reference-body {
+            padding: 0.9rem 1rem 1rem;
+        }
+
+        .winning-reference-body p {
+            margin: 0.2rem 0;
+        }
+
+        .winning-reference-body a {
+            color: #93c5fd;
+            text-decoration: none;
+        }
+
+        .winning-reference-body a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -983,6 +1016,23 @@
                 result.candidates.forEach((candidate, index) => {
                     html += `<p><strong>${index === 0 ? 'Top Candidate' : `Candidate #${index + 1}`}:</strong> ${escapeHtml(candidate.logo_name)} (${formatPercent(candidate.score)})</p>`;
                 });
+            }
+
+            if (result.winning_reference_signed_url) {
+                html += `
+                    <div class="winning-reference">
+                        <img src="${escapeHtml(result.winning_reference_signed_url)}" alt="Winning reference image">
+                        <div class="winning-reference-body">
+                            <p><strong>Winning Reference Image ID:</strong> ${escapeHtml(result.winning_reference_image_id || 'n/a')}</p>
+                            <p><strong>Winning Reference Storage Key:</strong> ${escapeHtml(result.winning_reference_storage_key || 'n/a')}</p>
+                            <p><a href="${escapeHtml(result.winning_reference_signed_url)}" target="_blank" rel="noreferrer">Open signed reference image</a></p>
+                        </div>
+                    </div>
+                `;
+            } else if (result.winning_reference_image_id || result.winning_reference_storage_key) {
+                html += '<hr style="border-color: var(--border); margin: 0.75rem 0;">';
+                html += `<p><strong>Winning Reference Image ID:</strong> ${escapeHtml(result.winning_reference_image_id || 'n/a')}</p>`;
+                html += `<p><strong>Winning Reference Storage Key:</strong> ${escapeHtml(result.winning_reference_storage_key || 'n/a')}</p>`;
             }
 
             div.innerHTML = html;

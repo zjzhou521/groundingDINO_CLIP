@@ -33,6 +33,7 @@ class ClassificationOutcome:
     predicted_logo_name: str | None
     score: float | None
     margin: float | None
+    winning_reference_image_id: str | None
     matched: bool
     used_full_image_fallback: bool
     candidates: list[CandidateMatch]
@@ -44,6 +45,7 @@ class ClassificationOutcome:
             "predicted_logo_name": self.predicted_logo_name,
             "score": self.score,
             "margin": self.margin,
+            "winning_reference_image_id": self.winning_reference_image_id,
             "matched": self.matched,
             "used_full_image_fallback": self.used_full_image_fallback,
             "candidates": [candidate.as_dict() for candidate in self.candidates],
@@ -92,6 +94,7 @@ class LogoPipelineService:
                 predicted_logo_name=None,
                 score=None,
                 margin=None,
+                winning_reference_image_id=None,
                 matched=False,
                 used_full_image_fallback=False,
                 candidates=[],
@@ -112,7 +115,9 @@ class LogoPipelineService:
             )
             search_results.append((detection, neighbors))
 
-        candidates, best_detections = self._aggregate_candidates(search_results)
+        candidates, best_detections, best_reference_image_ids = self._aggregate_candidates(
+            search_results
+        )
         if not candidates:
             return ClassificationOutcome(
                 detection=detections[0] if detections else None,
@@ -120,6 +125,7 @@ class LogoPipelineService:
                 predicted_logo_name=None,
                 score=None,
                 margin=None,
+                winning_reference_image_id=None,
                 matched=False,
                 used_full_image_fallback=used_full_image_fallback,
                 candidates=[],
@@ -139,6 +145,7 @@ class LogoPipelineService:
             predicted_logo_name=top_one.logo_name if matched else None,
             score=top_one.score,
             margin=margin,
+            winning_reference_image_id=best_reference_image_ids.get(top_one.logo_id),
             matched=matched,
             used_full_image_fallback=used_full_image_fallback,
             candidates=candidates,
@@ -147,19 +154,30 @@ class LogoPipelineService:
     def _aggregate_candidates(
         self,
         search_results: list[tuple[DetectedLogoBox | None, list]],
-    ) -> tuple[list[CandidateMatch], dict[str, DetectedLogoBox | None]]:
+    ) -> tuple[
+        list[CandidateMatch],
+        dict[str, DetectedLogoBox | None],
+        dict[str, str | None],
+    ]:
         grouped: dict[str, dict] = defaultdict(
             lambda: {
                 "logo_name": None,
                 "best_score": float("-inf"),
                 "best_detection": None,
+                "best_reference_image_id": None,
                 "reference_image_ids": set(),
             }
         )
 
         for detection, neighbors in search_results:
             crop_grouped: dict[str, dict] = defaultdict(
-                lambda: {"logo_name": None, "scores": [], "reference_image_ids": []}
+                lambda: {
+                    "logo_name": None,
+                    "scores": [],
+                    "reference_image_ids": [],
+                    "best_reference_image_id": None,
+                    "best_reference_score": float("-inf"),
+                }
             )
 
             for neighbor in neighbors:
@@ -170,10 +188,14 @@ class LogoPipelineService:
 
                 crop_group = crop_grouped[logo_id]
                 crop_group["logo_name"] = payload.get("logo_name")
-                crop_group["scores"].append(float(neighbor.score))
+                neighbor_score = float(neighbor.score)
+                crop_group["scores"].append(neighbor_score)
                 reference_image_id = payload.get("reference_image_id")
                 if reference_image_id is not None:
                     crop_group["reference_image_ids"].append(reference_image_id)
+                    if neighbor_score > crop_group["best_reference_score"]:
+                        crop_group["best_reference_score"] = neighbor_score
+                        crop_group["best_reference_image_id"] = reference_image_id
 
             for logo_id, values in crop_grouped.items():
                 scores = sorted(values["scores"], reverse=True)[:3]
@@ -187,9 +209,11 @@ class LogoPipelineService:
                 if crop_score > group["best_score"]:
                     group["best_score"] = crop_score
                     group["best_detection"] = detection
+                    group["best_reference_image_id"] = values["best_reference_image_id"]
 
         candidates: list[CandidateMatch] = []
         best_detections: dict[str, DetectedLogoBox | None] = {}
+        best_reference_image_ids: dict[str, str | None] = {}
         for logo_id, values in grouped.items():
             candidates.append(
                 CandidateMatch(
@@ -200,6 +224,7 @@ class LogoPipelineService:
                 )
             )
             best_detections[logo_id] = values["best_detection"]
+            best_reference_image_ids[logo_id] = values["best_reference_image_id"]
 
         candidates = sorted(
             candidates,
@@ -208,4 +233,8 @@ class LogoPipelineService:
         best_detections = {
             candidate.logo_id: best_detections.get(candidate.logo_id) for candidate in candidates
         }
-        return candidates, best_detections
+        best_reference_image_ids = {
+            candidate.logo_id: best_reference_image_ids.get(candidate.logo_id)
+            for candidate in candidates
+        }
+        return candidates, best_detections, best_reference_image_ids

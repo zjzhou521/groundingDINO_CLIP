@@ -58,6 +58,62 @@ def _download_and_store_image(
     return downloaded, image, normalized_bytes, content_type, storage_key, storage_url
 
 
+def _get_winning_reference_fields(
+    *,
+    db: Session,
+    winning_reference_image_id: str | None,
+) -> dict[str, str | None]:
+    fields = {
+        "winning_reference_image_id": winning_reference_image_id,
+        "winning_reference_storage_key": None,
+        "winning_reference_signed_url": None,
+    }
+
+    if winning_reference_image_id is None:
+        return fields
+
+    try:
+        reference_uuid = uuid.UUID(winning_reference_image_id)
+    except ValueError:
+        logger.warning(
+            "Winning reference image id is not a valid UUID: reference_image_id=%s",
+            winning_reference_image_id,
+        )
+        return fields
+
+    try:
+        reference = db.scalar(
+            select(LogoReferenceImage).where(LogoReferenceImage.id == reference_uuid)
+        )
+    except Exception:
+        logger.exception(
+            "Failed to load winning reference image metadata: reference_image_id=%s",
+            winning_reference_image_id,
+        )
+        return fields
+
+    if reference is None:
+        logger.warning(
+            "Winning reference image not found in database: reference_image_id=%s",
+            winning_reference_image_id,
+        )
+        return fields
+
+    fields["winning_reference_storage_key"] = reference.storage_key
+    try:
+        fields["winning_reference_signed_url"] = (
+            get_object_storage_service().generate_presigned_get_url(reference.storage_key)
+        )
+    except Exception:
+        logger.exception(
+            "Failed to sign winning reference image URL: reference_image_id=%s storage_key=%s",
+            winning_reference_image_id,
+            reference.storage_key,
+        )
+
+    return fields
+
+
 @router.get("/health", response_model=HealthResponse)
 def healthcheck() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -535,7 +591,15 @@ def classify_logo(
         db.refresh(job)
 
         outcome = pipeline.classify(user_id=user_id, image=image)
-        result = {"product_id": str(product.id), **outcome.as_dict()}
+        winning_reference_fields = _get_winning_reference_fields(
+            db=db,
+            winning_reference_image_id=outcome.winning_reference_image_id,
+        )
+        result = {
+            "product_id": str(product.id),
+            **outcome.as_dict(),
+            **winning_reference_fields,
+        }
         mark_job_succeeded(db, job, result)
 
         return ClassifyLogoResponse(
@@ -546,6 +610,9 @@ def classify_logo(
             predicted_logo_name=outcome.predicted_logo_name,
             score=outcome.score,
             margin=outcome.margin,
+            winning_reference_image_id=winning_reference_fields["winning_reference_image_id"],
+            winning_reference_storage_key=winning_reference_fields["winning_reference_storage_key"],
+            winning_reference_signed_url=winning_reference_fields["winning_reference_signed_url"],
             matched=outcome.matched,
             used_full_image_fallback=outcome.used_full_image_fallback,
             candidates=[MatchCandidate(**candidate.as_dict()) for candidate in outcome.candidates],
@@ -609,7 +676,15 @@ def classify_logo_file(
         db.refresh(job)
 
         outcome = pipeline.classify(user_id=user_id, image=image)
-        result = {"product_id": str(product.id), **outcome.as_dict()}
+        winning_reference_fields = _get_winning_reference_fields(
+            db=db,
+            winning_reference_image_id=outcome.winning_reference_image_id,
+        )
+        result = {
+            "product_id": str(product.id),
+            **outcome.as_dict(),
+            **winning_reference_fields,
+        }
         mark_job_succeeded(db, job, result)
 
         return ClassifyLogoResponse(
@@ -620,6 +695,9 @@ def classify_logo_file(
             predicted_logo_name=outcome.predicted_logo_name,
             score=outcome.score,
             margin=outcome.margin,
+            winning_reference_image_id=winning_reference_fields["winning_reference_image_id"],
+            winning_reference_storage_key=winning_reference_fields["winning_reference_storage_key"],
+            winning_reference_signed_url=winning_reference_fields["winning_reference_signed_url"],
             matched=outcome.matched,
             used_full_image_fallback=outcome.used_full_image_fallback,
             candidates=[MatchCandidate(**candidate.as_dict()) for candidate in outcome.candidates],
