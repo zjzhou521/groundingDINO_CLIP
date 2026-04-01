@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     DETECTION_PROMPT: str = "logo . brand logo . emblem . trademark . label"
     DETECTION_BOX_THRESHOLD: float = 0.25
     DETECTION_TEXT_THRESHOLD: float = 0.20
+    DETECTION_TOP_K: int = 5
 
     CLASSIFICATION_TOP_K: int = 8
     CLASSIFICATION_MATCH_THRESHOLD: float = 0.45

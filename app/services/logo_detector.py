@@ -55,9 +55,12 @@ class GroundingDINOService:
         ).to(self.device)
         self._model.eval()
 
-    def detect(self, image: Image.Image, top_k: int = 5) -> list[DetectedLogoBox]:
+    def detect(self, image: Image.Image, top_k: int | None = None) -> list[DetectedLogoBox]:
         """Detect top K logos in the image."""
         self._load()
+        resolved_top_k = settings.DETECTION_TOP_K if top_k is None else top_k
+        if resolved_top_k <= 0:
+            return []
 
         # Build the text prompt for grounding (single string with labels)
         text = " . ".join(self.labels)
@@ -92,7 +95,7 @@ class GroundingDINOService:
             range(num_boxes),
             key=lambda index: float(scores[index]),
             reverse=True
-        )[:top_k]
+        )[:resolved_top_k]
 
         detections: list[DetectedLogoBox] = []
         for index in sorted_indices:

@@ -7,8 +7,8 @@ The service is built for this workflow:
 1. A user uploads a small set of reference logos by passing public image URLs.
 2. The backend downloads those images, stores them in S3-compatible object storage, and generates embeddings with Jina.
 3. A user submits a product image URL.
-4. GroundingDINO finds the most likely logo region.
-5. The detected crop is embedded with Jina and matched against the enrolled logo vectors in Qdrant.
+4. GroundingDINO finds the top candidate logo regions.
+5. The detected crops are embedded with Jina and matched against the enrolled logo vectors in Qdrant.
 6. The API returns the logo position and the predicted logo name, or `unknown` if confidence is too low.
 
 ## Stack
@@ -210,6 +210,8 @@ The service reads all config from `.env`.
 - `DETECTION_PROMPT`
 - `DETECTION_BOX_THRESHOLD`
 - `DETECTION_TEXT_THRESHOLD`
+- `DETECTION_TOP_K`
+  - Default: `5`
 
 ### Classification
 
@@ -270,7 +272,7 @@ What happens:
 
 ### `POST /products/detect-logo`
 
-Detect the most likely logo region in a product image.
+Detect the top logo regions in a product image.
 
 Request:
 
@@ -286,7 +288,7 @@ Response includes:
 - `product_id`
 - `job_id`
 - `found`
-- `detection`
+- `detections`
 
 ### `POST /products/classify-logo`
 
@@ -303,7 +305,7 @@ Request:
 
 Response includes:
 
-- detection bounding box
+- winning detection bounding box
 - top predicted logo
 - similarity score
 - top1-vs-top2 margin
@@ -432,15 +434,16 @@ uv run ruff check app alembic
 
 Current classification logic:
 
-1. Detect the most likely logo box with GroundingDINO.
-2. Crop the detected logo region.
-3. Convert the crop to PNG bytes and embed it with Jina.
-4. Query Qdrant for nearest reference vectors filtered by `user_id`.
-5. Aggregate nearest hits by `logo_id`.
-6. Return the top result only if:
+1. Detect the top `DETECTION_TOP_K` logo boxes with GroundingDINO.
+2. Crop each detected logo region.
+3. Convert each crop to PNG bytes and embed it with Jina.
+4. Query Qdrant for nearest reference vectors for each crop, filtered by `user_id`.
+5. For each crop, aggregate nearest hits by `logo_id` using the mean of that logo's top few reference similarities.
+6. Across crops, keep the best-scoring crop for each logo and use that crop as the returned detection.
+7. Return the top result only if:
    - score >= `CLASSIFICATION_MATCH_THRESHOLD`
    - top1 - top2 >= `CLASSIFICATION_MARGIN_THRESHOLD`
-7. Otherwise return `unknown` behavior with `matched=false`.
+8. Otherwise return `unknown` behavior with `matched=false`.
 
 If no detection is found and `CLASSIFICATION_FALLBACK_TO_FULL_IMAGE=true`, the classifier falls back to the full image.
 

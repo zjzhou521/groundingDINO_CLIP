@@ -11,9 +11,12 @@
             --bg-tertiary: #252542;
             --accent: #6366f1;
             --accent-hover: #4f46e5;
+            --classify: #0f766e;
+            --classify-hover: #115e59;
             --text-primary: #f1f5f9;
             --text-secondary: #94a3b8;
             --success: #22c55e;
+            --warning: #f59e0b;
             --error: #ef4444;
             --border: #334155;
         }
@@ -165,6 +168,33 @@
             cursor: not-allowed;
         }
 
+        .action-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .action-row button {
+            width: 100%;
+        }
+
+        .classify-btn {
+            background: var(--classify);
+        }
+
+        .classify-btn:hover:not(:disabled) {
+            background: var(--classify-hover);
+        }
+
+        .secondary-action {
+            background: #2563eb;
+        }
+
+        .secondary-action:hover:not(:disabled) {
+            background: #1d4ed8;
+        }
+
         .divider {
             text-align: center;
             margin: 1rem 0;
@@ -281,6 +311,10 @@
             border-left: 3px solid var(--error);
         }
 
+        .result-info.warning {
+            border-left: 3px solid var(--warning);
+        }
+
         .result-info p {
             margin: 0.25rem 0;
             color: var(--text-secondary);
@@ -325,6 +359,62 @@
         .preview-thumb.active {
             display: block;
         }
+
+        .section-separator {
+            height: 1px;
+            background: var(--border);
+            margin: 1.5rem 0;
+        }
+
+        .subsection-title {
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .file-hint {
+            margin-top: 0.75rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .preview-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.75rem;
+            margin-top: 0.75rem;
+        }
+
+        .reference-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .reference-card img {
+            width: 100%;
+            height: 92px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .reference-card span {
+            display: block;
+            padding: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .reference-loading {
+            padding: 1rem 0;
+        }
     </style>
 </head>
 <body>
@@ -359,20 +449,51 @@
                 <input type="text" id="imageUrl" placeholder="https://example.com/image.png">
             </div>
 
-            <button id="detectBtn" disabled>Detect Logo</button>
+            <div class="action-row">
+                <button id="detectBtn" disabled>Detect Logo</button>
+                <button id="classifyBtn" class="classify-btn" disabled>Classify Logo</button>
+            </div>
 
             <div class="loading" id="loading">
                 <div class="spinner"></div>
-                <p>Detecting logo...</p>
+                <p id="loadingText">Processing image...</p>
             </div>
+
+            <div class="section-separator"></div>
+
+            <div class="subsection-title">Reference Images</div>
+
+            <div class="form-group">
+                <label for="logoName">Logo Name</label>
+                <input type="text" id="logoName" placeholder="e.g. nike">
+            </div>
+
+            <div class="form-group">
+                <div class="upload-area" id="referenceUploadArea">
+                    <div class="icon">🏷️</div>
+                    <p>Drop reference images here or click to browse</p>
+                    <input type="file" id="referenceFileInput" accept="image/*" multiple hidden>
+                </div>
+                <div class="file-hint" id="referenceSelection">No reference images selected</div>
+                <div class="preview-grid" id="referencePreviewGrid"></div>
+            </div>
+
+            <button id="uploadReferenceBtn" class="secondary-action" disabled>Upload Reference Images</button>
+
+            <div class="loading reference-loading" id="referenceLoading">
+                <div class="spinner"></div>
+                <p>Uploading reference images...</p>
+            </div>
+
+            <div id="referenceInfo"></div>
         </aside>
 
         <section class="panel">
-            <h2>Detection Result</h2>
+            <h2 id="resultTitle">Result</h2>
             <div class="image-container" id="resultContainer">
                 <div class="placeholder">
                     <div class="icon">🔍</div>
-                    <p>Upload an image and click "Detect Logo" to see results</p>
+                    <p>Upload an image and click "Detect Logo" or "Classify Logo" to see results</p>
                 </div>
             </div>
             <div id="resultInfo"></div>
@@ -385,25 +506,48 @@
         const fileInput = document.getElementById('fileInput');
         const imageUrl = document.getElementById('imageUrl');
         const userId = document.getElementById('userId');
+        const logoName = document.getElementById('logoName');
         const detectBtn = document.getElementById('detectBtn');
+        const classifyBtn = document.getElementById('classifyBtn');
+        const uploadReferenceBtn = document.getElementById('uploadReferenceBtn');
         const resultContainer = document.getElementById('resultContainer');
         const resultInfo = document.getElementById('resultInfo');
+        const resultTitle = document.getElementById('resultTitle');
         const loading = document.getElementById('loading');
+        const loadingText = document.getElementById('loadingText');
         const preview = document.getElementById('preview');
+        const referenceUploadArea = document.getElementById('referenceUploadArea');
+        const referenceFileInput = document.getElementById('referenceFileInput');
+        const referenceSelection = document.getElementById('referenceSelection');
+        const referencePreviewGrid = document.getElementById('referencePreviewGrid');
+        const referenceLoading = document.getElementById('referenceLoading');
+        const referenceInfo = document.getElementById('referenceInfo');
 
         let currentFile = null;
         let currentImageUrl = null;
+        let referenceFiles = [];
+        let referencePreviewUrls = [];
 
         // Event Listeners
         uploadArea.addEventListener('click', () => fileInput.click());
+        referenceUploadArea.addEventListener('click', () => referenceFileInput.click());
 
         uploadArea.addEventListener('dragover', (e) => {
             e.preventDefault();
             uploadArea.classList.add('dragover');
         });
 
+        referenceUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            referenceUploadArea.classList.add('dragover');
+        });
+
         uploadArea.addEventListener('dragleave', () => {
             uploadArea.classList.remove('dragover');
+        });
+
+        referenceUploadArea.addEventListener('dragleave', () => {
+            referenceUploadArea.classList.remove('dragover');
         });
 
         uploadArea.addEventListener('drop', (e) => {
@@ -415,9 +559,23 @@
             }
         });
 
+        referenceUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            referenceUploadArea.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                handleReferenceFiles(e.dataTransfer.files);
+            }
+        });
+
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
                 handleFile(e.target.files[0]);
+            }
+        });
+
+        referenceFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleReferenceFiles(e.target.files);
             }
         });
 
@@ -428,7 +586,11 @@
             updateButtonState();
         });
 
-        detectBtn.addEventListener('click', detectLogo);
+        logoName.addEventListener('input', updateReferenceButtonState);
+
+        detectBtn.addEventListener('click', () => submitImage('detect'));
+        classifyBtn.addEventListener('click', () => submitImage('classify'));
+        uploadReferenceBtn.addEventListener('click', uploadReferenceImages);
 
         // Functions
         function handleFile(file) {
@@ -453,64 +615,208 @@
         }
 
         function updateButtonState() {
-            detectBtn.disabled = !currentFile && !currentImageUrl;
+            const disabled = !currentFile && !currentImageUrl;
+            detectBtn.disabled = disabled;
+            classifyBtn.disabled = disabled;
         }
 
-        async function detectLogo() {
-            loading.classList.add('active');
-            detectBtn.disabled = true;
+        function handleReferenceFiles(fileList) {
+            const files = Array.from(fileList);
+            const invalidFile = files.find((file) => !file.type.startsWith('image/'));
+
+            if (invalidFile) {
+                showReferenceError(`"${invalidFile.name}" is not a valid image file`);
+                return;
+            }
+
+            referenceFiles = files;
+            renderReferencePreviewGrid();
+            updateReferenceButtonState();
+            referenceInfo.innerHTML = '';
+        }
+
+        function updateReferenceButtonState() {
+            uploadReferenceBtn.disabled = referenceFiles.length === 0 || !logoName.value.trim();
+        }
+
+        function setLoadingState(isLoading, message) {
+            loading.classList.toggle('active', isLoading);
+            if (message) {
+                loadingText.textContent = message;
+            }
+
+            if (isLoading) {
+                detectBtn.disabled = true;
+                classifyBtn.disabled = true;
+                return;
+            }
+
+            updateButtonState();
+        }
+
+        function setReferenceLoadingState(isLoading) {
+            referenceLoading.classList.toggle('active', isLoading);
+            if (isLoading) {
+                uploadReferenceBtn.disabled = true;
+                return;
+            }
+
+            updateReferenceButtonState();
+        }
+
+        function renderReferencePreviewGrid() {
+            referencePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+            referencePreviewUrls = [];
+            referencePreviewGrid.innerHTML = '';
+
+            if (referenceFiles.length === 0) {
+                referenceSelection.textContent = 'No reference images selected';
+                return;
+            }
+
+            referenceSelection.textContent = `${referenceFiles.length} reference image(s) selected`;
+
+            referenceFiles.forEach((file) => {
+                const objectUrl = URL.createObjectURL(file);
+                referencePreviewUrls.push(objectUrl);
+
+                const card = document.createElement('div');
+                card.className = 'reference-card';
+
+                const img = document.createElement('img');
+                img.src = objectUrl;
+                img.alt = file.name;
+
+                const caption = document.createElement('span');
+                caption.textContent = file.name;
+
+                card.appendChild(img);
+                card.appendChild(caption);
+                referencePreviewGrid.appendChild(card);
+            });
+        }
+
+        async function submitImage(action) {
+            const actionLabel = action === 'classify' ? 'Classification' : 'Detection';
+            const loadingMessage = action === 'classify' ? 'Classifying logo...' : 'Detecting logo...';
+
+            resultTitle.textContent = `${actionLabel} Result`;
+            setLoadingState(true, loadingMessage);
             resultInfo.innerHTML = '';
 
             try {
-                let imageSrc;
-                let response;
-
-                if (currentFile) {
-                    // Use file upload endpoint
-                    const formData = new FormData();
-                    formData.append('file', currentFile);
-                    formData.append('user_id', userId.value || 'user-1');
-
-                    imageSrc = preview.src;
-
-                    response = await fetch('/api/v1/products/detect-logo-file', {
-                        method: 'POST',
-                        body: formData
-                    });
-                } else if (currentImageUrl) {
-                    // Use URL-based endpoint
-                    imageSrc = currentImageUrl;
-
-                    response = await fetch('/api/v1/products/detect-logo', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            user_id: userId.value || 'user-1',
-                            image_url: currentImageUrl
-                        })
-                    });
-                } else {
-                    throw new Error('No image provided');
-                }
+                const { imageSrc, response } = await sendRequest(action);
 
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Detection failed');
+                    throw new Error(await readErrorMessage(response, `${actionLabel} failed`));
                 }
 
                 const result = await response.json();
-                displayResult(imageSrc, result);
+                if (action === 'classify') {
+                    displayClassificationResult(imageSrc, result);
+                } else {
+                    displayDetectionResult(imageSrc, result);
+                }
             } catch (error) {
-                showError(error.message);
+                showError(error instanceof Error ? error.message : String(error));
             } finally {
-                loading.classList.remove('active');
-                updateButtonState();
+                setLoadingState(false);
             }
         }
 
-        function displayResult(imageSrc, result) {
+        async function uploadReferenceImages() {
+            const trimmedLogoName = logoName.value.trim();
+            if (!trimmedLogoName) {
+                showReferenceError('Please enter a logo name');
+                return;
+            }
+
+            if (referenceFiles.length === 0) {
+                showReferenceError('Please select at least one reference image');
+                return;
+            }
+
+            setReferenceLoadingState(true);
+            referenceInfo.innerHTML = '';
+
+            try {
+                const formData = new FormData();
+                formData.append('user_id', userId.value || 'user-1');
+                formData.append('logo_name', trimmedLogoName);
+                referenceFiles.forEach((file) => {
+                    formData.append('files', file);
+                });
+
+                const response = await fetch('/api/v1/logos/reference-images-file', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(await readErrorMessage(response, 'Reference upload failed'));
+                }
+
+                const result = await response.json();
+                showReferenceSuccess(result);
+            } catch (error) {
+                showReferenceError(error instanceof Error ? error.message : String(error));
+            } finally {
+                setReferenceLoadingState(false);
+            }
+        }
+
+        async function sendRequest(action) {
+            let imageSrc;
+            let response;
+
+            if (currentFile) {
+                const formData = new FormData();
+                formData.append('file', currentFile);
+                formData.append('user_id', userId.value || 'user-1');
+
+                imageSrc = preview.src;
+                const endpoint = action === 'classify'
+                    ? '/api/v1/products/classify-logo-file'
+                    : '/api/v1/products/detect-logo-file';
+
+                response = await fetch(endpoint, {
+                    method: 'POST',
+                    body: formData
+                });
+            } else if (currentImageUrl) {
+                imageSrc = currentImageUrl;
+                const endpoint = action === 'classify'
+                    ? '/api/v1/products/classify-logo'
+                    : '/api/v1/products/detect-logo';
+
+                response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        user_id: userId.value || 'user-1',
+                        image_url: currentImageUrl
+                    })
+                });
+            } else {
+                throw new Error('No image provided');
+            }
+
+            return { imageSrc, response };
+        }
+
+        async function readErrorMessage(response, fallbackMessage) {
+            try {
+                const data = await response.json();
+                return data.detail || data.message || fallbackMessage;
+            } catch (_) {
+                const text = await response.text();
+                return text || fallbackMessage;
+            }
+        }
+
+        function displayDetectionResult(imageSrc, result) {
             // Clear container
             resultContainer.innerHTML = '';
 
@@ -525,16 +831,51 @@
                 const detections = result.detections || [];
                 if (result.found && detections.length > 0) {
                     detections.forEach((detection, index) => {
-                        drawDetectionBox(detection, img, index);
+                        drawDetectionBox(detection, img, {
+                            rank: index,
+                            labelText: `${index === 0 ? 'Best' : `#${index + 1}`}: ${detection.label || 'brand logo'}`,
+                            scoreText: `Detection: ${(detection.score * 100).toFixed(1)}%`
+                        });
                     });
-                    showResultInfo(result, true);
+                    showDetectionInfo(result, true);
                 } else {
-                    showResultInfo(result, false);
+                    showDetectionInfo(result, false);
                 }
             };
         }
 
-        function drawDetectionBox(detection, img, rank) {
+        function displayClassificationResult(imageSrc, result) {
+            resultContainer.innerHTML = '';
+
+            const img = document.createElement('img');
+            img.src = imageSrc;
+            img.id = 'resultImage';
+            resultContainer.appendChild(img);
+
+            img.onload = () => {
+                const topCandidate = result.candidates?.[0];
+                if (result.detection) {
+                    const label = result.matched
+                        ? `Match: ${result.predicted_logo_name || 'unknown'}`
+                        : `Candidate: ${(topCandidate && topCandidate.logo_name) || 'unknown'}`;
+
+                    const scoreText = result.score != null
+                        ? `Similarity: ${(result.score * 100).toFixed(1)}%`
+                        : 'Similarity: n/a';
+
+                    drawDetectionBox(result.detection, img, {
+                        rank: 0,
+                        labelText: label,
+                        scoreText
+                    });
+                }
+
+                showClassificationInfo(result);
+            };
+        }
+
+        function drawDetectionBox(detection, img, options = {}) {
+            const rank = options.rank ?? 0;
             const container = resultContainer;
             const containerRect = container.getBoundingClientRect();
             const imgRect = img.getBoundingClientRect();
@@ -562,33 +903,33 @@
             const label = document.createElement('div');
             label.className = 'detection-label';
             const rankLabel = rank === 0 ? 'Best' : `#${rank + 1}`;
-            label.textContent = `${rankLabel}: ${detection.label || 'brand logo'}`;
+            label.textContent = options.labelText || `${rankLabel}: ${detection.label || 'brand logo'}`;
             box.appendChild(label);
 
             // Add score
             const score = document.createElement('div');
             score.className = 'detection-score';
-            score.textContent = `Score: ${(detection.score * 100).toFixed(1)}%`;
+            score.textContent = options.scoreText || `Score: ${(detection.score * 100).toFixed(1)}%`;
             box.appendChild(score);
 
             container.appendChild(box);
         }
 
-        function showResultInfo(result, found) {
+        function showDetectionInfo(result, found) {
             const div = document.createElement('div');
             div.className = `result-info ${found ? 'success' : 'error'}`;
 
             if (found) {
                 const detections = result.detections || [];
                 let html = `<p><strong>Status:</strong> ${detections.length} logo(s) detected</p>`;
-                html += `<p><strong>Job ID:</strong> ${result.job_id}</p>`;
-                html += `<p><strong>Product ID:</strong> ${result.product_id}</p>`;
+                html += `<p><strong>Job ID:</strong> ${escapeHtml(result.job_id)}</p>`;
+                html += `<p><strong>Product ID:</strong> ${escapeHtml(result.product_id)}</p>`;
                 html += '<hr style="border-color: var(--border); margin: 0.75rem 0;">';
 
                 detections.forEach((d, i) => {
                     const rankLabel = i === 0 ? 'Best' : `#${i + 1}`;
                     html += `
-                        <p><strong>${rankLabel}:</strong> ${d.label || 'brand logo'} (${(d.score * 100).toFixed(1)}%)</p>
+                        <p><strong>${rankLabel}:</strong> ${escapeHtml(d.label || 'brand logo')} (${(d.score * 100).toFixed(1)}%)</p>
                         <p style="padding-left: 1rem; color: var(--text-secondary);">
                             Box: (${Math.round(d.x_min)}, ${Math.round(d.y_min)}) - (${Math.round(d.x_max)}, ${Math.round(d.y_max)})
                         </p>
@@ -599,8 +940,8 @@
             } else {
                 div.innerHTML = `
                     <p><strong>Status:</strong> No logo detected</p>
-                    <p><strong>Job ID:</strong> ${result.job_id}</p>
-                    <p><strong>Product ID:</strong> ${result.product_id}</p>
+                    <p><strong>Job ID:</strong> ${escapeHtml(result.job_id)}</p>
+                    <p><strong>Product ID:</strong> ${escapeHtml(result.product_id)}</p>
                 `;
             }
 
@@ -608,12 +949,92 @@
             resultInfo.appendChild(div);
         }
 
+        function showClassificationInfo(result) {
+            const div = document.createElement('div');
+            const topCandidate = result.candidates?.[0] || null;
+            const stateClass = result.matched ? 'success' : (topCandidate ? 'warning' : 'error');
+            div.className = `result-info ${stateClass}`;
+
+            let html = '';
+            html += `<p><strong>Status:</strong> ${result.matched ? 'Matched' : (topCandidate ? 'No confident match' : 'No candidate found')}</p>`;
+            html += `<p><strong>Job ID:</strong> ${escapeHtml(result.job_id)}</p>`;
+            html += `<p><strong>Product ID:</strong> ${escapeHtml(result.product_id)}</p>`;
+            html += `<p><strong>Predicted Logo:</strong> ${escapeHtml(result.predicted_logo_name || 'none')}</p>`;
+
+            if (!result.matched && topCandidate) {
+                html += `<p><strong>Top Candidate:</strong> ${escapeHtml(topCandidate.logo_name)}</p>`;
+            }
+
+            html += `<p><strong>Similarity Score:</strong> ${formatPercent(result.score)}</p>`;
+            html += `<p><strong>Top1 Margin:</strong> ${formatPercent(result.margin)}</p>`;
+            html += `<p><strong>Used Full Image Fallback:</strong> ${result.used_full_image_fallback ? 'Yes' : 'No'}</p>`;
+
+            if (result.detection) {
+                html += `
+                    <p><strong>Winning Box:</strong> (${Math.round(result.detection.x_min)}, ${Math.round(result.detection.y_min)}) - (${Math.round(result.detection.x_max)}, ${Math.round(result.detection.y_max)})</p>
+                    <p><strong>Detection Score:</strong> ${formatPercent(result.detection.score)}</p>
+                `;
+            } else {
+                html += '<p><strong>Winning Box:</strong> None</p>';
+            }
+
+            if (result.candidates && result.candidates.length > 0) {
+                html += '<hr style="border-color: var(--border); margin: 0.75rem 0;">';
+                result.candidates.forEach((candidate, index) => {
+                    html += `<p><strong>${index === 0 ? 'Top Candidate' : `Candidate #${index + 1}`}:</strong> ${escapeHtml(candidate.logo_name)} (${formatPercent(candidate.score)})</p>`;
+                });
+            }
+
+            div.innerHTML = html;
+            resultInfo.innerHTML = '';
+            resultInfo.appendChild(div);
+        }
+
+        function formatPercent(value) {
+            if (value === null || value === undefined || Number.isNaN(value)) {
+                return 'n/a';
+            }
+            return `${(value * 100).toFixed(1)}%`;
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
         function showError(message) {
             const div = document.createElement('div');
             div.className = 'result-info error';
-            div.innerHTML = `<p><strong>Error:</strong> ${message}</p>`;
+            div.innerHTML = `<p><strong>Error:</strong> ${escapeHtml(message)}</p>`;
             resultInfo.innerHTML = '';
             resultInfo.appendChild(div);
+        }
+
+        function showReferenceSuccess(result) {
+            const div = document.createElement('div');
+            div.className = 'result-info success';
+            div.innerHTML = `
+                <p><strong>Status:</strong> Reference images uploaded successfully</p>
+                <p><strong>Job ID:</strong> ${escapeHtml(result.job_id)}</p>
+                <p><strong>Logo ID:</strong> ${escapeHtml(result.logo_id)}</p>
+                <p><strong>Logo Name:</strong> ${escapeHtml(result.logo_name)}</p>
+                <p><strong>Uploaded Images:</strong> ${escapeHtml(result.uploaded_images)}</p>
+                <p><strong>Qdrant Points Upserted:</strong> ${escapeHtml(result.qdrant_points_upserted)}</p>
+            `;
+            referenceInfo.innerHTML = '';
+            referenceInfo.appendChild(div);
+        }
+
+        function showReferenceError(message) {
+            const div = document.createElement('div');
+            div.className = 'result-info error';
+            div.innerHTML = `<p><strong>Error:</strong> ${escapeHtml(message)}</p>`;
+            referenceInfo.innerHTML = '';
+            referenceInfo.appendChild(div);
         }
     </script>
 </body>
