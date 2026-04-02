@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, HttpUrl
 
 
@@ -61,3 +63,12 @@ class ClassifyLogoResponse(BaseModel):
     matched: bool
     used_full_image_fallback: bool
     candidates: list[MatchCandidate]
+
+
+class ClassifyLogoLLMResponse(BaseModel):
+    job_id: str
+    product_id: str
+    predicted_logo_id: str | None
+    predicted_logo_name: str | None
+    confidence: float | None
+    token_cost: Any | None

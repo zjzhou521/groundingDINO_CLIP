@@ -65,6 +65,13 @@ class ObjectStorageService:
             ContentType=content_type,
         )
 
+    def download_bytes(self, key: str) -> bytes:
+        response = self.client.get_object(Bucket=self.bucket_name, Key=key)
+        try:
+            return response["Body"].read()
+        finally:
+            response["Body"].close()
+
     def build_object_url(self, key: str) -> str:
         base_url = settings.S3_ENDPOINT_URL.rstrip("/")
         return f"{base_url}/{self.bucket_name}/{key.lstrip('/')}"

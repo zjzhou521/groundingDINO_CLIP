@@ -1,5 +1,6 @@
 from app.schemas.api import (
     BoundingBox,
+    ClassifyLogoLLMResponse,
     ClassifyLogoResponse,
     DetectLogoResponse,
     HealthResponse,
@@ -11,6 +12,7 @@ from app.schemas.api import (
 
 __all__ = [
     "BoundingBox",
+    "ClassifyLogoLLMResponse",
     "ClassifyLogoResponse",
     "DetectLogoResponse",
     "HealthResponse",

@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.db import get_db
 from app.dependencies import (
     get_embedding_service,
+    get_logo_llm_classification_service,
     get_logo_pipeline_service,
     get_network_service,
     get_object_storage_service,
@@ -21,6 +22,7 @@ from app.dependencies import (
 from app.models import Logo, LogoReferenceImage, Product
 from app.schemas import (
     BoundingBox,
+    ClassifyLogoLLMResponse,
     ClassifyLogoResponse,
     DetectLogoResponse,
     HealthResponse,
@@ -621,6 +623,84 @@ def classify_logo(
         logger.error("RemoteImageDownloadError: %s", exc)
         mark_job_failed(db, job, str(exc))
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        mark_job_failed(db, job, str(exc))
+        raise
+
+
+@router.post("/products/classify-logo-llm", response_model=ClassifyLogoLLMResponse)
+def classify_logo_llm(
+    payload: ProductImageRequest,
+    db: DbSession,
+) -> ClassifyLogoLLMResponse:
+    llm_classifier = get_logo_llm_classification_service()
+    user_id = payload.user_id
+    job = create_job(
+        db,
+        user_id=user_id,
+        job_type="classify_logo_llm",
+        params={"image_url": str(payload.image_url)},
+    )
+
+    try:
+        mark_job_running(db, job)
+        product_id = uuid.uuid4()
+        downloaded, image, normalized_bytes, content_type, storage_key, storage_url = (
+            _download_and_store_image(
+                image_url=str(payload.image_url),
+                storage_prefix="products",
+                storage_owner=user_id,
+                storage_entity_id=str(product_id),
+            )
+        )
+
+        product = Product(
+            id=product_id,
+            user_id=user_id,
+            source_url=str(payload.image_url),
+            storage_key=storage_key,
+            storage_url=storage_url,
+            original_filename=downloaded.filename,
+            content_type=content_type,
+            width=image.width,
+            height=image.height,
+        )
+        db.add(product)
+        db.commit()
+        db.refresh(product)
+
+        job.product_id = product.id
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+
+        outcome = llm_classifier.classify(
+            db=db,
+            user_id=user_id,
+            image_bytes=normalized_bytes,
+            content_type=content_type,
+        )
+        result = {
+            "product_id": str(product.id),
+            **outcome.as_dict(),
+        }
+        mark_job_succeeded(db, job, result)
+
+        return ClassifyLogoLLMResponse(
+            job_id=str(job.id),
+            product_id=str(product.id),
+            predicted_logo_id=outcome.predicted_logo_id,
+            predicted_logo_name=outcome.predicted_logo_name,
+            confidence=outcome.confidence,
+            token_cost=outcome.token_cost,
+        )
+    except RemoteImageDownloadError as exc:
+        logger.error("RemoteImageDownloadError: %s", exc)
+        mark_job_failed(db, job, str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        mark_job_failed(db, job, str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         mark_job_failed(db, job, str(exc))
         raise

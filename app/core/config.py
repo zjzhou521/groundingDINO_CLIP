@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     CLASSIFICATION_MARGIN_THRESHOLD: float = 0.03
     CLASSIFICATION_FALLBACK_TO_FULL_IMAGE: bool = True
 
+    LLM_BASE_URL: str
+    LLM_API_KEY: SecretStr
+    MODEL_IMAGE_DETAIL: str
+
 
 @lru_cache
 def get_settings() -> Settings:
